@@ -1,0 +1,1100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TRPG 叙事体系 · 知识图谱</title>
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<script>window.d3||document.write(unescape('%3Cscript src="https://cdn.bootcdn.net/ajax/libs/d3/7.8.5/d3.min.js"%3E%3C/script%3E'))</script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    width: 100vw; height: 100vh;
+    overflow: hidden;
+    background: #fff;
+    font-family: 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', sans-serif;
+    user-select: none;
+  }
+
+  #container { width: 100%; height: 100%; position: relative; }
+  svg { width: 100%; height: 100%; display: block; }
+
+  /* ---- 覆盖层 ---- */
+  .title {
+    position: fixed; top: 24px; left: 50%;
+    transform: translateX(-50%);
+    color: rgba(0,0,0,0.45); font-size: 20px; font-weight: 500;
+    letter-spacing: 4px; z-index: 5; pointer-events: none;
+  }
+  .stats {
+    position: fixed; top: 54px; left: 50%;
+    transform: translateX(-50%);
+    color: rgba(0,0,0,0.25); font-size: 11px; letter-spacing: 2px;
+    z-index: 5; pointer-events: none;
+  }
+  .hint {
+    position: fixed; bottom: 24px; left: 50%;
+    transform: translateX(-50%);
+    color: rgba(0,0,0,0.2); font-size: 11px; letter-spacing: 1px;
+    z-index: 5; pointer-events: none;
+  }
+
+  /* ---- 图例 ---- */
+  .legend {
+    position: fixed; top: 100px; right: 28px;
+    z-index: 5; pointer-events: none;
+  }
+  .legend-item {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 8px; font-size: 12px; color: rgba(0,0,0,0.5);
+  }
+  .legend-dot {
+    width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0;
+  }
+  .legend-text-label {
+    font-size: 11px; color: rgba(0,0,0,0.4); font-style: italic;
+  }
+
+  /* ---- Tooltip ---- */
+  .tooltip {
+    position: fixed; z-index: 50;
+    background: rgba(255,255,255,0.96); border: 1px solid rgba(0,0,0,0.1);
+    border-radius: 10px; padding: 14px 18px; max-width: 280px;
+    font-size: 13px; color: #333; line-height: 1.6;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.12);
+    pointer-events: none; opacity: 0; transition: opacity 0.2s;
+  }
+  .tooltip.visible { opacity: 1; }
+  .tooltip-title { font-weight: 600; margin-bottom: 4px; font-size: 14px; }
+  .tooltip-breadcrumb { font-size: 10px; color: rgba(0,0,0,0.35); margin-bottom: 8px; }
+  .tooltip-desc { font-size: 12px; color: #555; }
+
+  /* ---- 连线 ---- */
+  .link-archetype {
+    stroke: #C8102E; stroke-width: 1.8px; stroke-opacity: 0.35;
+    pointer-events: none;
+  }
+  .link-symbol {
+    stroke: #2E5CB8; stroke-width: 1.3px; stroke-opacity: 0.28;
+    pointer-events: none;
+  }
+  .link-category {
+    stroke: #333333; stroke-width: 0.8px; stroke-opacity: 0.18;
+    pointer-events: none;
+  }
+  .link-instance {
+    stroke: #aaaaaa; stroke-width: 0.8px; stroke-opacity: 0.30;
+    stroke-dasharray: 3 3; pointer-events: none;
+  }
+
+  /* 高亮连线 */
+  .link-archetype.link-highlight { stroke-opacity: 0.75; stroke-width: 2.5px; }
+  .link-symbol.link-highlight { stroke-opacity: 0.7; stroke-width: 2px; }
+  .link-category.link-highlight { stroke-opacity: 0.6; stroke-width: 1.5px; }
+  .link-instance.link-highlight { stroke-opacity: 0.4; stroke-width: 1.2px; stroke-dasharray: none; }
+
+  /* ---- 节点样式 ---- */
+  .node-circle {
+    cursor: pointer;
+    transition: opacity 0.3s;
+  }
+  .node-instance {
+    cursor: pointer;
+    transition: opacity 0.3s, fill 0.2s, font-size 0.2s;
+  }
+
+  /* 原型层 (Layer 1) */
+  .circle-archetype {
+    fill: #C8102E; stroke: rgba(160,0,0,0.2); stroke-width: 2;
+  }
+  /* 象征层 (Layer 2) */
+  .circle-symbol {
+    fill: #2E5CB8; stroke: rgba(30,60,150,0.2); stroke-width: 1.5;
+  }
+  /* 范畴层 (Layer 3) */
+  .circle-category {
+    fill: #333333; stroke: rgba(0,0,0,0.12); stroke-width: 1;
+  }
+
+  /* 圆圈内文字 */
+  .circle-label {
+    fill: #fff; font-size: 11px; text-anchor: middle; pointer-events: none;
+    font-weight: 500; dominant-baseline: central;
+  }
+  /* 原型层标签（图片下方） */
+  .arch-label {
+    fill: rgba(0,0,0,0.6); font-size: 11px; text-anchor: middle; pointer-events: none;
+    font-weight: 500;
+  }
+  /* 范畴层标签（圆圈下方） */
+  .category-label {
+    fill: rgba(0,0,0,0.55); font-size: 9px; text-anchor: middle; pointer-events: none;
+  }
+  /* 实例文字 */
+  .instance-text {
+    fill: rgba(0,0,0,0.5); font-size: 9px; text-anchor: middle;
+    dominant-baseline: central;
+  }
+
+  /* ---- 状态 ---- */
+  .node-dimmed { opacity: 0.12 !important; }
+  .node-highlight { opacity: 1 !important; }
+  .circle-highlight {
+    filter: url(#glow-red);
+  }
+  .circle-highlight-blue {
+    filter: url(#glow-blue);
+  }
+  .instance-highlight {
+    fill: #C8102E !important; font-size: 11px !important; font-weight: 600;
+  }
+</style>
+</head>
+<body>
+<div class="title">TRPG 叙事体系 · 知识框架</div>
+<div class="stats" id="stats"></div>
+<div class="hint">滚轮缩放 · 拖拽平移 · 拖拽节点探索 · 悬停高亮关联 · 点击展开后代 · 双击空白重置</div>
+
+<div class="legend">
+  <div class="legend-item"><span class="legend-dot" style="background:#C8102E;"></span> 原型角色层</div>
+  <div class="legend-item"><span class="legend-dot" style="background:#2E5CB8;"></span> 象征层</div>
+  <div class="legend-item"><span class="legend-dot" style="background:#333;"></span> 范畴层</div>
+  <div class="legend-item"><span class="legend-text-label">知识实例层 →</span> 纯文字</div>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+
+<div id="container">
+  <svg id="graph"></svg>
+</div>
+
+<script>
+(function() {
+  const container = document.getElementById("container");
+  const W = container.clientWidth || window.innerWidth;
+  const H = container.clientHeight || window.innerHeight;
+
+  // ========== SVG 设置 ==========
+  const svg = d3.select("#graph")
+    .attr("width", W).attr("height", H);
+
+  const defs = svg.append("defs");
+
+  // 红色发光滤镜（原型）
+  const glowRed = defs.append("filter")
+    .attr("id", "glow-red")
+    .attr("x", "-40%").attr("y", "-40%")
+    .attr("width", "180%").attr("height", "180%");
+  glowRed.append("feDropShadow")
+    .attr("dx", 0).attr("dy", 0)
+    .attr("stdDeviation", 6)
+    .attr("flood-color", "#C8102E")
+    .attr("flood-opacity", 0.5);
+
+  // 蓝色发光滤镜（象征）
+  const glowBlue = defs.append("filter")
+    .attr("id", "glow-blue")
+    .attr("x", "-40%").attr("y", "-40%")
+    .attr("width", "180%").attr("height", "180%");
+  glowBlue.append("feDropShadow")
+    .attr("dx", 0).attr("dy", 0)
+    .attr("stdDeviation", 5)
+    .attr("flood-color", "#2E5CB8")
+    .attr("flood-opacity", 0.45);
+
+  // 原型图片圆形裁剪
+  defs.append("clipPath").attr("id", "archClip")
+    .append("circle")
+    .attr("cx", 0).attr("cy", 0).attr("r", 30);
+
+  // 阴影滤镜
+  const shadowFilter = defs.append("filter")
+    .attr("id", "shadow")
+    .attr("x", "-50%").attr("y", "-50%")
+    .attr("width", "200%").attr("height", "200%");
+  shadowFilter.append("feDropShadow")
+    .attr("dx", 0).attr("dy", 3)
+    .attr("stdDeviation", 5)
+    .attr("flood-color", "#000")
+    .attr("flood-opacity", 0.15);
+
+  // ========== 数据生成 ==========
+  const CX = W / 2, CY = H / 2;
+  const baseRing = Math.min(W, H);
+
+  const RING1 = baseRing * 0.12;   // 原型层
+  const RING2 = baseRing * 0.26;   // 象征层
+  const RING3 = baseRing * 0.44;   // 范畴层
+  const RING4 = baseRing * 0.60;   // 实例层
+
+  // 原型定义
+  const archetypeDefs = [
+    { id: "arch_01", label: "英雄", symbols: [
+      { label: "圣剑", cats: [
+        { label: "锻造传说", instances: [
+          { label: "亚瑟王拔出石中剑", desc: "中世纪不列颠传说，无人能拔出石中剑时，少年亚瑟证明了自己的王者血脉，标志着英雄旅程的起点。" },
+          { label: "村正妖刀的诞生", desc: "日本刀匠传说中，带有诅咒之力的妖刀在雷电交加之夜淬火而成，刀即是持有者的命运。" },
+        ]},
+        { label: "持有者的试炼", instances: [
+          { label: "赫拉克勒斯十二试炼", desc: "希腊英雄为赎罪完成十二项不可能任务，每项试炼都考验英雄不同维度的品格与能力。" },
+        ]},
+        { label: "断裂与重铸", instances: [
+          { label: "纳希尔圣剑重铸", desc: "《魔戒》中王者之剑的碎片被重新锻造，象征人皇血脉回归与破碎世界的修复。" },
+        ]},
+      ]},
+      { label: "光明", cats: [
+        { label: "黎明之光", instances: [
+          { label: "普罗米修斯盗火", desc: "泰坦神从奥林匹斯山盗取天火赠予人类，光明象征文明与知识的启蒙。" },
+        ]},
+        { label: "圣焰", instances: [
+          { label: "不灭的圣火", desc: "琐罗亚斯德教神庙中永恒燃烧的圣火，代表真理与秩序对抗黑暗的永恒之战。" },
+        ]},
+        { label: "净化之辉", instances: [
+          { label: "神道教祓禊仪式", desc: "以水与火净化不洁之物，光作为神圣 cleansing 力量的具象化。" },
+        ]},
+      ]},
+      { label: "勇气", cats: [
+        { label: "内心之战", instances: [
+          { label: "哈姆雷特的犹豫", desc: "丹麦王子面对复仇使命时的内心挣扎，真正的勇气在于克服自我的怀疑与恐惧。" },
+        ]},
+        { label: "无惧之誓", instances: [
+          { label: "斯巴达三百勇士", desc: "温泉关之战中明知必死仍坚守阵地，誓约赋予凡人超越生死的力量。" },
+        ]},
+        { label: "牺牲之勇", instances: [
+          { label: "奥斯卡·辛德勒的名单", desc: "二战期间德国商人冒着生命危险拯救1200名犹太人，牺牲个人利益换取他人生命。" },
+        ]},
+      ]},
+    ]},
+    { id: "arch_02", label: "导师", symbols: [
+      { label: "古卷", cats: [
+        { label: "失传的文字", instances: [
+          { label: "罗塞塔石碑", desc: "同一段文字用三种文字刻写，成为破解古埃及象形文字的钥匙。" },
+        ]},
+        { label: "解读之谜", instances: [
+          { label: "伏尼契手稿", desc: "中世纪神秘手稿至今无人能解读，其文字与图案成为密码学史上的终极谜题。" },
+        ]},
+        { label: "预言之书", instances: [
+          { label: "诺查丹玛斯预言集", desc: "16世纪法国预言家的四行诗体预言，后世不断从中解读出历史事件的隐喻。" },
+        ]},
+      ]},
+      { label: "灯塔", cats: [
+        { label: "引路之光", instances: [
+          { label: "亚历山大灯塔", desc: "古代世界七大奇迹之一，为地中海航行者指引方向，象征智慧照亮迷途。" },
+        ]},
+        { label: "暴风雨中的坚守", instances: [
+          { label: "老人与海中的灯塔", desc: "海明威笔下老渔夫在海上与大鱼搏斗时遥望灯塔之光，象征绝境中的坚守信念。" },
+        ]},
+      ]},
+      { label: "智慧之眼", cats: [
+        { label: "洞见之能", instances: [
+          { label: "所罗门的审判", desc: "以色列王以智慧裁决两位母亲争夺婴儿的诉讼，洞察人心的能力超越了一切证据。" },
+        ]},
+        { label: "启蒙之瞬", instances: [
+          { label: "牛顿的苹果", desc: "一个坠落的苹果触发牛顿对万有引力的思考，启蒙往往来自对日常现象的深度洞察。" },
+        ]},
+      ]},
+    ]},
+    { id: "arch_03", label: "阴影", symbols: [
+      { label: "暗影", cats: [
+        { label: "无形之惧", instances: [
+          { label: "克苏鲁的呼唤", desc: "洛夫克拉夫特创造的宇宙恐怖——真正的恐惧来自人类无法理解与名状的远古存在。" },
+        ]},
+        { label: "暗影之力", instances: [
+          { label: "星球大战原力黑暗面", desc: "黑暗原力以愤怒与恐惧为食，每个绝地武士都必须面对内心暗影的诱惑。" },
+        ]},
+      ]},
+      { label: "面具", cats: [
+        { label: "伪装的艺术", instances: [
+          { label: "歌剧魅影", desc: "巴黎歌剧院地下戴着面具的音乐天才，面具之下隐藏着被世界拒绝的灵魂。" },
+        ]},
+        { label: "身份之谜", instances: [
+          { label: "化身博士", desc: "杰基尔博士与海德先生——同一个人分裂的善恶两面，每个人心中都戴着社会身份的面具。" },
+        ]},
+      ]},
+      { label: "深渊", cats: [
+        { label: "虚无之门", instances: [
+          { label: "尼采的深渊凝视", desc: "\"当你凝视深渊时，深渊也在凝视你\"——与虚无对峙是探索人性深层的必经之路。" },
+        ]},
+        { label: "坠落与飞升", instances: [
+          { label: "路西法的堕落", desc: "最光辉的天使坠入地狱，堕落叙事中蕴含了\"由光明入黑暗\"的悲剧美学原型。" },
+        ]},
+      ]},
+    ]},
+    { id: "arch_04", label: "骗徒", symbols: [
+      { label: "谎言", cats: [
+        { label: "善意的谎言", instances: [
+          { label: "美丽人生中的父亲", desc: "纳粹集中营中父亲为儿子编造\"游戏\"谎言，用虚构的世界保护童年不被残酷摧毁。" },
+        ]},
+        { label: "真相的代价", instances: [
+          { label: "皇帝的新装", desc: "安徒生童话中全城人因恐惧而假装看见不存在的新衣，唯有孩子说出真相——谎言是社会权力的基石。" },
+        ]},
+      ]},
+      { label: "变局", cats: [
+        { label: "混沌之力", instances: [
+          { label: "洛基的恶作剧", desc: "北欧神话中诡计之神不断制造混乱，却也因他的搅局促使诸神获得最强大的武器与防御。" },
+        ]},
+        { label: "颠覆与再造", instances: [
+          { label: "小丑的哲学", desc: "蝙蝠侠系列中小丑以混乱为信条，颠覆一切秩序——骗徒是旧世界崩塌与新世界诞生的催化剂。" },
+        ]},
+      ]},
+      { label: "反叛", cats: [
+        { label: "秩序之敌", instances: [
+          { label: "普罗米修斯盗火", desc: "反抗宙斯禁令将火种带给人类，反叛者往往以自我牺牲换取更大层面的自由。" },
+        ]},
+        { label: "自由之歌", instances: [
+          { label: "V字仇杀队", desc: "面具下的反叛者以极端手段对抗极权政府，\"人民不应该害怕他们的政府\"。" },
+        ]},
+      ]},
+    ]},
+    { id: "arch_05", label: "守卫", symbols: [
+      { label: "盾牌", cats: [
+        { label: "守护之物", instances: [
+          { label: "美国队长的振金盾", desc: "漫威宇宙中最坚固的盾牌，不仅是武器更是守护者精神的象征——\"我可以这样打一整天\"。" },
+        ]},
+        { label: "牺牲之盾", instances: [
+          { label: "霍华德·史塔克的抉择", desc: "钢铁侠父亲以自身为盾保护宇宙魔方，守卫者的终极宿命是为所护之物献出生命。" },
+        ]},
+      ]},
+      { label: "城墙", cats: [
+        { label: "堡垒之固", instances: [
+          { label: "君临城的城墙", desc: "《冰与火之歌》中维斯特洛最坚固的城防，但真正的威胁往往来自城墙之内而非之外。" },
+        ]},
+        { label: "围城之战", instances: [
+          { label: "特洛伊围城十年", desc: "希腊联军围攻特洛伊十年不下，城墙的坚韧改写了整部战争史诗的走向。" },
+        ]},
+      ]},
+      { label: "誓约", cats: [
+        { label: "血之誓", instances: [
+          { label: "守夜人誓言", desc: "\"长夜将至，我从今开始守望，至死方休\"——誓约赋予守卫者超越个人生死的神圣使命。" },
+        ]},
+        { label: "背誓与救赎", instances: [
+          { label: "詹姆·兰尼斯特", desc: "弑君者背负背誓骂名，实则为拯救君临城百姓而杀死疯王——守卫的最高忠诚是良知而非形式。" },
+        ]},
+      ]},
+    ]},
+    { id: "arch_06", label: "使者", symbols: [
+      { label: "信使鸟", cats: [
+        { label: "天际使者", instances: [
+          { label: "诺亚方舟中的鸽子", desc: "大洪水后鸽子衔回橄榄枝，成为灾难结束与新世界开启的第一个信号。" },
+        ]},
+        { label: "失落的信函", instances: [
+          { label: "马拉松战役的信使", desc: "雅典信使奔跑42公里传递捷报，跑完最后一步喊出\"我们胜利了\"便倒地而亡。" },
+        ]},
+      ]},
+      { label: "号角", cats: [
+        { label: "集结之声", instances: [
+          { label: "罗兰的号角", desc: "《罗兰之歌》中骑士罗兰在最后一刻吹响号角求援，号角声是英雄落幕的终极宣告。" },
+        ]},
+        { label: "战争号令", instances: [
+          { label: "魔戒中的刚铎号角", desc: "博罗米尔吹响刚铎号角召集援军，古老的号声承载了一个王国的荣誉与绝望。" },
+        ]},
+      ]},
+      { label: "预兆", cats: [
+        { label: "命运的征兆", instances: [
+          { label: "凯撒遇刺前的预言", desc: "\"当心三月十五日\"——预言者警告凯撒却未被采信，预兆的价值在于你是否愿意聆听。" },
+        ]},
+        { label: "解读未来", instances: [
+          { label: "德尔斐神谕", desc: "古希腊最重要的神谕所，女祭司皮提亚的预言左右了无数城邦与英雄的命运抉择。" },
+        ]},
+      ]},
+    ]},
+    { id: "arch_07", label: "孤儿", symbols: [
+      { label: "失落之岛", cats: [
+        { label: "遗忘之地", instances: [
+          { label: "鲁滨逊的荒岛", desc: "流落荒岛28年，从绝望中建立自己的王国——孤儿叙事是关于在被世界遗忘后如何重新定义自我。" },
+        ]},
+        { label: "归途之寻", instances: [
+          { label: "奥德修斯的漂泊", desc: "特洛伊战争后十年漂泊归乡，归途即是身份的重建与确认——\"我是谁\"的问题在旅途中被回答。" },
+        ]},
+      ]},
+      { label: "遗物", cats: [
+        { label: "血脉之证", instances: [
+          { label: "哈利波特的伤疤", desc: "额头闪电形伤疤是父母之爱的印记，遗物连接着孤儿与被剥夺的过去。" },
+        ]},
+        { label: "遗物的诅咒", instances: [
+          { label: "魔戒中的至尊魔戒", desc: "弗罗多继承的不仅是戒指更是毁灭它的使命，遗物将孤儿的命运与整个世界的存亡捆绑。" },
+        ]},
+      ]},
+      { label: "孤独者", cats: [
+        { label: "独行之道", instances: [
+          { label: "荒野猎人的格拉斯", desc: "被同伴抛弃在荒野中，靠复仇的意志穿越冰原——孤独是淬炼生存意志的终极熔炉。" },
+        ]},
+      ]},
+    ]},
+    { id: "arch_08", label: "创造者", symbols: [
+      { label: "熔炉", cats: [
+        { label: "锻造之火", instances: [
+          { label: "赫菲斯托斯的锻炉", desc: "希腊火神在火山深处的锻炉中打造诸神武器，创造的过程即是火与铁的激烈对抗。" },
+        ]},
+        { label: "创造与毁灭", instances: [
+          { label: "奥本海默的原子弹", desc: "\"我成了死神，世界的毁灭者\"——创造者的馈赠有时是对人类自身的终极威胁。" },
+        ]},
+      ]},
+      { label: "画笔", cats: [
+        { label: "想象之力", instances: [
+          { label: "达芬奇的笔记本", desc: "文艺复兴全才在笔记中绘制飞行器与解剖图，画笔是创造者将内心图景投射到现实的工具。" },
+        ]},
+        { label: "画中之界", instances: [
+          { label: "神笔马良", desc: "中国民间故事中画出的东西变成真实——创造者最古老的梦想就是抹平想象与现实之间的鸿沟。" },
+        ]},
+      ]},
+      { label: "蓝图", cats: [
+        { label: "设计之道", instances: [
+          { label: "悉尼歌剧院的设计竞赛", desc: "约恩·乌松的贝壳形蓝图从废纸堆中被捡回，创造者的远见常需要时间被世人追认。" },
+        ]},
+        { label: "未建之城", instances: [
+          { label: "弗兰克·劳埃德·赖特的广亩城市", desc: "建筑师构想的理想城市蓝图，虽未建成却影响了一个世纪的城市规划思想。" },
+        ]},
+      ]},
+    ]},
+    { id: "arch_09", label: "统治者", symbols: [
+      { label: "王冠", cats: [
+        { label: "加冕之路", instances: [
+          { label: "拿破仑自戴皇冠", desc: "从教皇手中取过皇冠自行加冕——统治者权力的来源不是神授而是自我赋权。" },
+        ]},
+        { label: "王冠之重", instances: [
+          { label: "李尔王的疯癫", desc: "放弃王权后被女儿背叛，在暴风雨中发狂——王冠之重不在于其物质而是失去它后的虚无。" },
+        ]},
+      ]},
+      { label: "权杖", cats: [
+        { label: "权威之杖", instances: [
+          { label: "摩西分红海", desc: "以手中之杖分开红海带领族人逃离埃及，权杖是统治者将意志施加于自然法则的象征。" },
+        ]},
+        { label: "权力之试", instances: [
+          { label: "亚瑟王的圆桌", desc: "以圆桌取代长桌使骑士平起平坐——真正的统治智慧在于知道何时放下权杖分享权力。" },
+        ]},
+      ]},
+      { label: "法典", cats: [
+        { label: "律法之书", instances: [
+          { label: "汉谟拉比法典", desc: "人类最早的成文法典，以眼还眼——法典的诞生标志着文明从任意暴力走向规则治理。" },
+        ]},
+        { label: "法外之地", instances: [
+          { label: "安提戈涅的抉择", desc: "违背国王禁令埋葬兄长——当人定法与自然法冲突时，个体良知如何对抗统治者的律令。" },
+        ]},
+      ]},
+    ]},
+    { id: "arch_10", label: "探索者", symbols: [
+      { label: "罗盘", cats: [
+        { label: "方向之择", instances: [
+          { label: "哥伦布西航", desc: "坚信向西航行可抵东方，错误的计算导出了正确的发现——探索者以信念为罗盘驶入未知。" },
+        ]},
+        { label: "迷失与寻路", instances: [
+          { label: "南极探险斯科特队", desc: "征服南极点的竞赛中败给阿蒙森队且全员罹难——探索的代价有时是生命，但精神永不沉没。" },
+        ]},
+      ]},
+      { label: "未知之地", cats: [
+        { label: "地图之外", instances: [
+          { label: "马可·波罗游记", desc: "威尼斯商人穿越丝绸之路抵达元大都，为欧洲打开了一扇通往东方的想象之门。" },
+        ]},
+        { label: "新世界的命名", instances: [
+          { label: "郑和下西洋", desc: "明朝宝船舰队七下西洋远达非洲东岸，以朝贡而非殖民的方式探索世界——一条未被走完的路。" },
+        ]},
+      ]},
+      { label: "旅人之杖", cats: [
+        { label: "行路之道", instances: [
+          { label: "朝圣之路圣地亚哥", desc: "千年朝圣路上徒步者以贝壳为信、以杖为伴——探索不仅是向外更是向内的旅程。" },
+        ]},
+        { label: "归途", instances: [
+          { label: "霍比特人的来回之旅", desc: "比尔博离家冒险后带着故事与宝藏归来——探索者的终极寓言是\"出发是为了更好地归来\"。" },
+        ]},
+      ]},
+    ]},
+    { id: "arch_11", label: "智者", symbols: [
+      { label: "天秤", cats: [
+        { label: "平衡之道", instances: [
+          { label: "佛陀的中道", desc: "放弃苦修与享乐的极端，在正念中找到解脱——智慧不在两端而在于平衡。" },
+        ]},
+        { label: "抉择之重", instances: [
+          { label: "所罗门王的判断", desc: "两位母亲争夺婴儿，真正母亲宁可放弃也不愿孩子被劈开——最难的抉择考验人性本质。" },
+        ]},
+      ]},
+      { label: "星图", cats: [
+        { label: "星辰的指引", instances: [
+          { label: "东方三博士的星", desc: "伯利恒之星引导三博士找到圣婴——在无垠宇宙中解读星辰的意义是智者独有的能力。" },
+        ]},
+        { label: "陨落之星", instances: [
+          { label: "第谷超新星", desc: "1572年第谷观测到一颗\"新星\"打破了亚里士多德天体不变的教条——旧星的陨落是新知的黎明。" },
+        ]},
+      ]},
+      { label: "古语", cats: [
+        { label: "遗忘的语言", instances: [
+          { label: "巴别塔的语言分裂", desc: "人类企图建造通天塔，上帝以混淆语言阻止——从此智者需要跨越语词的鸿沟寻找共通的真理。" },
+        ]},
+        { label: "名字的秘密", instances: [
+          { label: "千与千寻中的名字", desc: "汤婆婆夺走名字以控制灵魂——在各种神话传统中，知晓事物的真名即拥有掌握其本质的力量。" },
+        ]},
+      ]},
+    ]},
+    { id: "arch_12", label: "恋人", symbols: [
+      { label: "玫瑰", cats: [
+        { label: "绽放与凋零", instances: [
+          { label: "小王子与玫瑰", desc: "B612星球上唯一一朵玫瑰因小王子的爱而独一无二——爱不在于拥有而在于彼此驯服的过程。" },
+        ]},
+        { label: "荆棘之路", instances: [
+          { label: "睡美人的荆棘城堡", desc: "王子劈开荆棘唤醒公主——真爱之路必然布满荆棘，需要穿越才能抵达。" },
+        ]},
+      ]},
+      { label: "心之键", cats: [
+        { label: "心门之钥", instances: [
+          { label: "简爱的自我之爱", desc: "简爱拒绝罗切斯特的道德妥协——\"我虽卑微，但我也有灵魂\"，爱他人的前提是守住自己。" },
+        ]},
+        { label: "钥匙的代价", instances: [
+          { label: "小美人鱼的交易", desc: "以声音换取双腿，每一步如踩尖刀——爱的代价是不惜以自我的重要部分作为交换。" },
+        ]},
+      ]},
+      { label: "共感", cats: [
+        { label: "情感共鸣", instances: [
+          { label: "罗密欧与朱丽叶", desc: "两个家族的仇恨被一对恋人的死亡消解——真正的情感共鸣能跨越无法逾越的社会鸿沟。" },
+        ]},
+        { label: "共感之痛", instances: [
+          { label: "呼啸山庄的希斯克利夫", desc: "爱到极致化为恨与复仇——共感的力量是一柄双刃剑，同时拥有创造与毁灭的可能。" },
+        ]},
+      ]},
+    ]},
+  ];
+
+  // ========== 构建节点和连线 ==========
+  const nodesData = [];
+  const linksData = [];
+
+  function addNode(id, label, layer, group, r, color, parentId, ringRadius, desc) {
+    nodesData.push({
+      id, label, layer, group, r, color, parentId, ringRadius,
+      desc: desc || "",
+      x: 0, y: 0, angle: 0,
+    });
+    return id;
+  }
+
+  // 游历原型定义，生成节点和连线
+  archetypeDefs.forEach(arch => {
+    const archId = addNode(arch.id, arch.label, 1, "archetype", 30, "#C8102E", null, RING1);
+
+    arch.symbols.forEach((sym, si) => {
+      const symId = addNode(arch.id + "_sym" + si, sym.label, 2, "symbol", 20, "#2E5CB8", archId, RING2);
+      linksData.push({ source: archId, target: symId, layer: 1, type: "archetype" });
+
+      sym.cats.forEach((cat, ci) => {
+        const catId = addNode(symId + "_cat" + ci, cat.label, 3, "category", 12, "#333333", symId, RING3);
+        linksData.push({ source: symId, target: catId, layer: 2, type: "symbol" });
+
+        const existingCount = (cat.instances || []).length;
+        (cat.instances || []).forEach((inst, ii) => {
+          const instId = addNode(catId + "_inst" + ii, inst.label, 4, "instance", 0, null, catId, RING4, inst.desc);
+          linksData.push({ source: catId, target: instId, layer: 3, type: "category" });
+        });
+
+        // 每个范畴补充到至少3个实例（≈原来3倍）
+        const targetCount = 3;
+        for (let j = existingCount; j < targetCount; j++) {
+          const extraLabel = cat.label + (j === 0 ? "实例" : "实例" + (j + 1));
+          const instId = addNode(catId + "_inst" + j, extraLabel, 4, "instance", 0, null, catId, RING4,
+            "关于" + cat.label + "的叙事案例" + (j + 1) + "。");
+          linksData.push({ source: catId, target: instId, layer: 3, type: "category" });
+        }
+      });
+    });
+  });
+
+  // 分类各层节点
+  const archetypeNodes = nodesData.filter(d => d.layer === 1);
+  const symbolNodes = nodesData.filter(d => d.layer === 2);
+  const categoryNodes = nodesData.filter(d => d.layer === 3);
+  const instanceNodes = nodesData.filter(d => d.layer === 4);
+  const circleNodes = nodesData.filter(d => d.layer <= 3);
+
+  // 原型图片分配（按定义顺序对应12张图）
+  const archImageFiles = [
+    "画板 13.jpg", "画板 15.jpg", "画板 16.jpg", "画板 17.jpg",
+    "画板 18.jpg", "画板 24.jpg", "画板 25.jpg", "画板 26.jpg",
+    "画板 27.jpg", "画板 28 副本 2.jpg", "画板 28 副本.jpg", "画板 28.jpg"
+  ];
+  archetypeNodes.forEach((node, i) => {
+    node.imgFile = "asset/" + archImageFiles[i];
+  });
+
+  // 更新统计
+  document.getElementById("stats").textContent =
+    "原型 " + archetypeNodes.length + " · 象征 " + symbolNodes.length +
+    " · 范畴 " + categoryNodes.length + " · 实例 " + instanceNodes.length;
+
+  // ========== 初始径向定位 ==========
+  function assignRadialPositions() {
+    // 原型均匀分布
+    const archCount = archetypeNodes.length;
+    archetypeNodes.forEach((node, i) => {
+      node.angle = (2 * Math.PI * i) / archCount - Math.PI / 2;
+      node.x = CX + RING1 * Math.cos(node.angle);
+      node.y = CY + RING1 * Math.sin(node.angle);
+    });
+
+    // 递归定位子节点
+    const idMap = new Map(nodesData.map(n => [n.id, n]));
+
+    function positionDescendants(parentId) {
+      const children = nodesData.filter(n => n.parentId === parentId);
+      if (children.length === 0) return;
+      const parent = idMap.get(parentId);
+      if (!parent || parent.angle == null) return;
+
+      const spread = children[0].layer === 2 ? Math.PI / 5    // 象征层展开~36°
+                   : children[0].layer === 3 ? Math.PI / 6    // 范畴层展开~30°
+                   : Math.PI / 7;                              // 实例层展开~26°
+
+      const count = children.length;
+      const half = spread / 2;
+      const step = count > 1 ? spread / (count - 1) : 0;
+
+      children.forEach((child, i) => {
+        const offset = count > 1 ? -half + i * step : 0;
+        child.angle = parent.angle + offset;
+        child.x = CX + child.ringRadius * Math.cos(child.angle);
+        child.y = CY + child.ringRadius * Math.sin(child.angle);
+        if (child.layer < 4) positionDescendants(child.id);
+      });
+    }
+
+    archetypeNodes.forEach(a => positionDescendants(a.id));
+  }
+
+  assignRadialPositions();
+
+  // ========== 力模拟 ==========
+  const simulation = d3.forceSimulation(nodesData)
+    .force("link", d3.forceLink(linksData).id(d => d.id)
+      .distance(d => {
+        if (d.type === "archetype") return RING2 - RING1;
+        if (d.type === "symbol")    return RING3 - RING2;
+        if (d.type === "category")  return RING4 - RING3;
+        return 120;
+      })
+      .strength(d => {
+        if (d.type === "archetype") return 0.22;
+        if (d.type === "symbol")    return 0.15;
+        if (d.type === "category")  return 0.08;
+        return 0.04;
+      })
+    )
+    .force("charge", d3.forceManyBody().strength(d => {
+      if (d.layer === 1) return -350;
+      if (d.layer === 2) return -200;
+      if (d.layer === 3) return -80;
+      return -20;
+    }))
+    .force("collision", d3.forceCollide().radius(d => {
+      if (d.layer === 1) return 38;
+      if (d.layer === 2) return 26;
+      if (d.layer === 3) return 16;
+      return (d.label || "").length * 3;
+    }))
+    .force("center", d3.forceCenter(CX, CY).strength(0.02))
+    .force("radial", function(alpha) {
+      for (const node of nodesData) {
+        if (node.ringRadius == null || (node.fx != null && node.fy != null)) continue;
+        const dx = node.x - CX;
+        const dy = node.y - CY;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const targetX = CX + node.ringRadius * (dx / dist);
+        const targetY = CY + node.ringRadius * (dy / dist);
+        const strength = node.layer === 1 ? 0.25 : node.layer === 2 ? 0.18 : node.layer === 3 ? 0.12 : 0.06;
+        node.vx += (targetX - node.x) * strength * alpha;
+        node.vy += (targetY - node.y) * strength * alpha;
+      }
+    })
+    .force("angular-spread", function(alpha) {
+      // 保持原型均匀分布
+      const N = archetypeNodes.length;
+      archetypeNodes.forEach((node, i) => {
+        const targetAngle = (2 * Math.PI * i) / N - Math.PI / 2;
+        const currentAngle = Math.atan2(node.y - CY, node.x - CX);
+        let diff = targetAngle - currentAngle;
+        while (diff > Math.PI) diff -= 2 * Math.PI;
+        while (diff < -Math.PI) diff += 2 * Math.PI;
+        const strength = 0.06 * alpha * node.ringRadius;
+        node.vx += Math.cos(currentAngle + Math.PI / 2) * diff * strength;
+        node.vy += Math.sin(currentAngle + Math.PI / 2) * diff * strength;
+      });
+    })
+    .alphaDecay(0.018)
+    .alphaMin(0.002);
+
+  // ========== 缩放 ==========
+  const zoomGroup = svg.append("g").attr("class", "zoom-group");
+
+  const zoom = d3.zoom()
+    .scaleExtent([0.12, 5])
+    .on("zoom", (event) => {
+      zoomGroup.attr("transform", event.transform);
+    });
+
+  svg.call(zoom);
+  // 初始缩放使整个图可见
+  const initScale = Math.min(W, H) / (RING4 * 2.3);
+  svg.call(zoom.transform, d3.zoomIdentity.translate(W / 2, H / 2).scale(initScale).translate(-CX, -CY));
+
+  // ========== 绘制连线 ==========
+  const linkGroup = zoomGroup.append("g").attr("class", "links");
+
+  const linkArchetype = linkGroup.selectAll("line.link-archetype")
+    .data(linksData.filter(l => l.type === "archetype"))
+    .join("line").attr("class", "link-archetype");
+
+  const linkSymbol = linkGroup.selectAll("line.link-symbol")
+    .data(linksData.filter(l => l.type === "symbol"))
+    .join("line").attr("class", "link-symbol");
+
+  const linkInstance = linkGroup.selectAll("line.link-instance")
+    .data(linksData.filter(l => l.type === "category"))
+    .join("line").attr("class", "link-instance");
+
+  const allLinkGroups = { linkArchetype, linkSymbol, linkInstance };
+
+  // ========== 绘制节点 ==========
+  const nodeGroup = zoomGroup.append("g").attr("class", "nodes");
+
+  // --- 原型节点 (Layer 1, 圆形图片) ---
+  const archetypeG = nodeGroup.selectAll("g.node-archetype")
+    .data(archetypeNodes, d => d.id)
+    .join("g")
+    .attr("class", "node-circle node-archetype")
+    .attr("transform", d => `translate(${d.x}, ${d.y})`);
+
+  archetypeG.append("image")
+    .attr("class", "circle-archetype")
+    .attr("x", -30).attr("y", -30)
+    .attr("width", 60).attr("height", 60)
+    .attr("clip-path", "url(#archClip)")
+    .attr("filter", "url(#shadow)")
+    .attr("preserveAspectRatio", "xMidYMid slice")
+    .attr("href", d => d.imgFile);
+
+  // 红色描边圆环
+  archetypeG.append("circle")
+    .attr("class", "arch-stroke")
+    .attr("r", 30)
+    .attr("fill", "none")
+    .attr("stroke", "#C8102E")
+    .attr("stroke-width", 2.5)
+    .attr("pointer-events", "none");
+
+  archetypeG.append("text")
+    .attr("class", "arch-label")
+    .attr("y", 38)
+    .text(d => d.label);
+
+  // --- 象征节点 (Layer 2, 蓝色中圆) ---
+  const symbolG = nodeGroup.selectAll("g.node-symbol")
+    .data(symbolNodes, d => d.id)
+    .join("g")
+    .attr("class", "node-circle node-symbol")
+    .attr("transform", d => `translate(${d.x}, ${d.y})`);
+
+  symbolG.append("circle")
+    .attr("class", "circle-symbol")
+    .attr("r", 20)
+    .attr("filter", "url(#shadow)");
+
+  symbolG.append("text")
+    .attr("class", "circle-label")
+    .attr("dy", 1)
+    .style("font-size", d => d.label.length > 2 ? "9px" : "10px")
+    .text(d => d.label);
+
+  // --- 范畴节点 (Layer 3, 黑色小圆, 标签在下方) ---
+  const categoryG = nodeGroup.selectAll("g.node-category")
+    .data(categoryNodes, d => d.id)
+    .join("g")
+    .attr("class", "node-circle node-category")
+    .attr("transform", d => `translate(${d.x}, ${d.y})`);
+
+  categoryG.append("circle")
+    .attr("class", "circle-category")
+    .attr("r", 12);
+
+  categoryG.append("text")
+    .attr("class", "category-label")
+    .attr("y", 22)
+    .text(d => d.label);
+
+  // --- 实例节点 (Layer 4, 纯文字) ---
+  const instanceG = nodeGroup.selectAll("g.node-instance")
+    .data(instanceNodes, d => d.id)
+    .join("g")
+    .attr("class", "node-instance")
+    .attr("transform", d => `translate(${d.x}, ${d.y})`);
+
+  instanceG.append("text")
+    .attr("class", "instance-text")
+    .text(d => d.label.length > 14 ? d.label.substring(0, 13) + "…" : d.label);
+
+  // ========== 交互状态 ==========
+  const hoveredNodeId = { current: null };
+  const clickHighlightedIds = new Set();
+  const idMap = new Map(nodesData.map(n => [n.id, n]));
+
+  // 获取节点的所有关联节点（祖先 + 后代 + 自身）
+  function getRelatedNodeIds(node) {
+    const ids = new Set();
+    ids.add(node.id);
+    // 上溯祖先
+    let current = node;
+    while (current.parentId && idMap.has(current.parentId)) {
+      ids.add(current.parentId);
+      current = idMap.get(current.parentId);
+    }
+    // 下溯后代
+    function collectDescendants(nid) {
+      nodesData.filter(c => c.parentId === nid).forEach(c => {
+        ids.add(c.id);
+        collectDescendants(c.id);
+      });
+    }
+    collectDescendants(node.id);
+    return ids;
+  }
+
+  // 获取所有后代节点
+  function getDescendantIds(node) {
+    const ids = new Set();
+    ids.add(node.id);
+    function collect(nid) {
+      nodesData.filter(c => c.parentId === nid).forEach(c => {
+        ids.add(c.id);
+        collect(c.id);
+      });
+    }
+    collect(node.id);
+    return ids;
+  }
+
+  // 更新所有节点的视觉状态
+  function updateVisualState() {
+    // 计算哪些节点应该高亮
+    // 展开点击高亮：每个被点击节点的所有后代都高亮
+    const allHighlightedIds = new Set();
+    clickHighlightedIds.forEach(cid => {
+      const node = idMap.get(cid);
+      if (node) getDescendantIds(node).forEach(id => allHighlightedIds.add(id));
+    });
+    // 悬停高亮：展开上下游关联节点（仅当该节点未被点击高亮时）
+    if (hoveredNodeId.current && !clickHighlightedIds.has(hoveredNodeId.current)) {
+      getRelatedNodeIds(idMap.get(hoveredNodeId.current)).forEach(id => allHighlightedIds.add(id));
+    }
+
+    const hasAnyHighlight = allHighlightedIds.size > 0;
+
+    // 更新圆形节点
+    nodeGroup.selectAll("g.node-circle")
+      .classed("node-dimmed", d => hasAnyHighlight && !allHighlightedIds.has(d.id))
+      .classed("node-highlight", d => allHighlightedIds.has(d.id))
+      .each(function(d) {
+        const el = d3.select(this).select(d.layer === 1 ? "image" : "circle");
+        const isHighlighted = allHighlightedIds.has(d.id);
+        if (d.layer === 1) {
+          el.attr("filter", isHighlighted ? "url(#glow-red)" : "url(#shadow)");
+        } else if (d.layer === 2) {
+          el.attr("filter", isHighlighted ? "url(#glow-blue)" : "url(#shadow)");
+        }
+      });
+
+    // 更新实例文字节点
+    nodeGroup.selectAll("g.node-instance")
+      .classed("node-dimmed", d => hasAnyHighlight && !allHighlightedIds.has(d.id))
+      .each(function(d) {
+        const text = d3.select(this).select("text");
+        text.classed("instance-highlight", allHighlightedIds.has(d.id));
+      });
+
+    // 更新连线高亮
+    Object.values(allLinkGroups).forEach(linkSel => {
+      linkSel.classed("link-highlight", l => {
+        if (!hasAnyHighlight) return false;
+        return allHighlightedIds.has(l.source.id) && allHighlightedIds.has(l.target.id);
+      });
+    });
+  }
+
+  function clearAllHighlights() {
+    clickHighlightedIds.clear();
+    hoveredNodeId.current = null;
+    updateVisualState();
+    hideTooltip();
+  }
+
+  // ========== Tooltip ==========
+  function buildBreadcrumb(d) {
+    const parts = [];
+    let current = d;
+    while (current) {
+      parts.unshift(current.label);
+      current = current.parentId ? idMap.get(current.parentId) : null;
+    }
+    return parts.join(" > ");
+  }
+
+  function showTooltip(event, d) {
+    const tip = d3.select("#tooltip");
+    tip.html(`
+      <div class="tooltip-title">${d.label}</div>
+      <div class="tooltip-breadcrumb">${buildBreadcrumb(d)}</div>
+      ${d.desc ? '<div class="tooltip-desc">' + d.desc + '</div>' : ''}
+    `);
+    const tx = Math.min(event.pageX + 14, window.innerWidth - 296);
+    const ty = Math.min(event.pageY - 20, window.innerHeight - 120);
+    tip.style("left", tx + "px").style("top", ty + "px").classed("visible", true);
+  }
+
+  function hideTooltip() {
+    d3.select("#tooltip").classed("visible", false);
+  }
+
+  // ========== 事件处理 ==========
+  // 悬停：圆形节点
+  nodeGroup.selectAll("g.node-circle")
+    .on("mouseenter", function(event, d) {
+      hoveredNodeId.current = d.id;
+      updateVisualState();
+    })
+    .on("mouseleave", function() {
+      hoveredNodeId.current = null;
+      updateVisualState();
+    });
+
+  // 点击：圆形节点 → 高亮后代
+  nodeGroup.selectAll("g.node-circle")
+    .on("click", function(event, d) {
+      event.stopPropagation();
+      if (clickHighlightedIds.has(d.id)) {
+        clickHighlightedIds.delete(d.id);
+      } else {
+        clickHighlightedIds.add(d.id);
+      }
+      updateVisualState();
+    });
+
+  // 悬停：实例文字 → 显示 tooltip
+  nodeGroup.selectAll("g.node-instance")
+    .on("mouseenter", function(event, d) {
+      hoveredNodeId.current = d.id;
+      updateVisualState();
+      showTooltip(event, d);
+    })
+    .on("mousemove", function(event, d) {
+      if (hoveredNodeId.current === d.id) {
+        const tip = d3.select("#tooltip");
+        const tx = Math.min(event.pageX + 14, window.innerWidth - 296);
+        const ty = Math.min(event.pageY - 20, window.innerHeight - 120);
+        tip.style("left", tx + "px").style("top", ty + "px");
+      }
+    })
+    .on("mouseleave", function() {
+      hoveredNodeId.current = null;
+      updateVisualState();
+      hideTooltip();
+    });
+
+  // 点击实例文字
+  nodeGroup.selectAll("g.node-instance")
+    .on("click", function(event, d) {
+      event.stopPropagation();
+      showTooltip(event, d);
+    });
+
+  // 双击空白 → 重置
+  svg.on("dblclick", (event) => {
+    if (event.target === svg.node()) {
+      clearAllHighlights();
+      svg.transition().duration(750)
+        .call(zoom.transform, d3.zoomIdentity
+          .translate(W / 2, H / 2)
+          .scale(initScale)
+          .translate(-CX, -CY));
+    }
+  });
+
+  // 点击空白 → 清除高亮
+  svg.on("click", (event) => {
+    if (event.target === svg.node() && clickHighlightedIds.size > 0) {
+      clearAllHighlights();
+    }
+    if (event.target === svg.node()) {
+      hideTooltip();
+    }
+  });
+
+  // ESC 清除
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") clearAllHighlights();
+  });
+
+  // ========== 拖拽 ==========
+  function dragStart(event, d) {
+    if (!event.active) simulation.alphaTarget(0.3).restart();
+    d.fx = d.x;
+    d.fy = d.y;
+    hideTooltip();
+  }
+
+  function dragged(event, d) {
+    d.fx = event.x;
+    d.fy = event.y;
+  }
+
+  function dragEnd(event, d) {
+    if (!event.active) simulation.alphaTarget(0);
+    // 圆形节点（1-3层）：松手回弹到环上
+    if (d.layer <= 3) {
+      d.fx = null;
+      d.fy = null;
+    }
+    // 实例文字（4层）：保留位置但允许力模拟轻微调整
+    // 如果想要完全自由放置，保持 fx/fy；如果想要浮动，释放它们
+    // 这里选择释放，让文字节点自由浮动
+  }
+
+  const drag = d3.drag()
+    .on("start", dragStart)
+    .on("drag", dragged)
+    .on("end", dragEnd);
+
+  nodeGroup.selectAll("g.node-circle").call(drag);
+  nodeGroup.selectAll("g.node-instance").call(drag);
+
+  // ========== Tick 更新 ==========
+  simulation.on("tick", () => {
+    linkArchetype
+      .attr("x1", d => d.source.x).attr("y1", d => d.source.y)
+      .attr("x2", d => d.target.x).attr("y2", d => d.target.y);
+
+    linkSymbol
+      .attr("x1", d => d.source.x).attr("y1", d => d.source.y)
+      .attr("x2", d => d.target.x).attr("y2", d => d.target.y);
+
+    linkInstance
+      .attr("x1", d => d.source.x).attr("y1", d => d.source.y)
+      .attr("x2", d => d.target.x).attr("y2", d => d.target.y);
+
+    archetypeG.attr("transform", d => `translate(${d.x}, ${d.y})`);
+    symbolG.attr("transform", d => `translate(${d.x}, ${d.y})`);
+    categoryG.attr("transform", d => `translate(${d.x}, ${d.y})`);
+    instanceG.attr("transform", d => `translate(${d.x}, ${d.y})`);
+  });
+
+  // ========== 窗口缩放 ==========
+  window.addEventListener("resize", () => {
+    const w = container.clientWidth;
+    const h = container.clientHeight;
+    svg.attr("width", w).attr("height", h);
+    simulation
+      .force("center", d3.forceCenter(w / 2, h / 2))
+      .alpha(0.3).restart();
+  });
+
+  console.log("TRPG 叙事知识图谱已就绪: " + nodesData.length + " 个节点, " + linksData.length + " 条连线");
+  console.log("  原型: " + archetypeNodes.length + " | 象征: " + symbolNodes.length +
+              " | 范畴: " + categoryNodes.length + " | 实例: " + instanceNodes.length);
+})();
+</script>
+</body>
+</html>
